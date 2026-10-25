@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>JSON Lens · JSON 可视化思维导图</title>
+<meta name="description" content="Paste JSON, get an interactive mind-map. 100% local processing — no data leaves your browser." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='3' y='9' width='6' height='6' rx='1.5' fill='%232563eb'/%3E%3Crect x='15' y='3' width='6' height='5' rx='1.5' fill='%2316a34a'/%3E%3Crect x='15' y='16' width='6' height='5' rx='1.5' fill='%23d97706'/%3E%3Cpath d='M9 12h4m2-6.5h-2v13h2' stroke='%2394a3b8' stroke-width='1.6' fill='none'/%3E%3C/svg%3E" />
+<style>
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --text: #16181d; --muted: #5b6470;
+    --border: #e3e7ec; --primary: #2563eb; --primary-weak: rgba(37, 99, 235, 0.1);
+  }
+  html.dark {
+    --bg: #101216; --surface: #171a20; --text: #e8eaee; --muted: #9aa3ae;
+    --border: #262c36; --primary: #5b93f5; --primary-weak: rgba(91, 147, 245, 0.14);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 14px; line-height: 1.6;
+  }
+  .page { max-width: 1360px; margin: 0 auto; padding: 20px 18px 48px; }
+  header.hero { display: flex; align-items: flex-start; gap: 14px; flex-wrap: wrap; margin: 6px 0 16px; }
+  .logo { display: flex; align-items: center; gap: 10px; }
+  .logo h1 { margin: 0; font-size: 24px; letter-spacing: 0.2px; }
+  .logo .sub { display: block; font-size: 13px; color: var(--muted); font-weight: 400; }
+  .hero-ops { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .ghost-btn {
+    border: 1px solid var(--border); background: transparent; color: var(--muted);
+    border-radius: 999px; padding: 5px 13px; font-size: 12px; cursor: pointer;
+  }
+  .ghost-btn:hover { color: var(--text); border-color: var(--text); }
+
+  .grid { display: grid; grid-template-columns: 380px 1fr; gap: 14px; align-items: start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 14px 16px; margin-bottom: 14px;
+  }
+  .panel-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .panel-head h2 { margin: 0; font-size: 15px; }
+  .ops { margin-left: auto; display: flex; gap: 7px; flex-wrap: wrap; }
+  .chip {
+    font-size: 12px; padding: 5px 13px; border-radius: 999px;
+    border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer;
+  }
+  .chip:hover:not(:disabled) { color: var(--text); border-color: var(--text); }
+  .chip:disabled { opacity: 0.4; cursor: default; }
+  .chip.primary { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
+  .chip.primary:hover:not(:disabled) { color: #fff; filter: brightness(1.08); border-color: var(--primary); }
+
+  .json-input {
+    width: 100%; min-height: 300px; resize: vertical;
+    border: 1px solid var(--border); border-radius: 10px;
+    background: transparent; color: var(--text);
+    font-family: Consolas, Monaco, monospace; font-size: 12.5px; line-height: 1.6;
+    padding: 11px 13px;
+  }
+  .json-input:focus { outline: none; border-color: var(--primary); }
+  .err { color: #f87171; font-size: 12.5px; margin: 8px 0 0; word-break: break-all; }
+  .stats { color: var(--muted); font-size: 12.5px; margin: 8px 0 0; }
+
+  /* 画布区 */
+  .stage-wrap { position: relative; }
+  .mm-stage {
+    height: min(74vh, 760px); min-height: 380px;
+    border: 1px solid var(--border); border-radius: 12px;
+    background: var(--surface); overflow: hidden; cursor: grab;
+    touch-action: none; user-select: none; position: relative;
+  }
+  .mm-stage:active { cursor: grabbing; }
+  .mm-stage > svg { display: block; }
+  .mm-toolbar {
+    display: flex; gap: 7px; align-items: center; flex-wrap: wrap; margin-bottom: 9px;
+  }
+  .mm-toolbar button {
+    font-size: 12px; padding: 5px 12px; border-radius: 999px;
+    border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer;
+  }
+  .mm-toolbar button:hover { color: var(--text); border-color: var(--text); }
+  .mm-zoom { font-size: 12px; min-width: 42px; text-align: center; color: var(--text); }
+  .mm-tip { margin-left: auto; font-size: 12px; color: var(--muted); }
+  .mm-link { fill: none; stroke-width: 1.8px; opacity: 0.75; }
+  .mm-node { cursor: pointer; }
+  .mm-node rect { filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.18)); }
+  .mm-label { font-size: 13px; font-weight: 600; paint-order: stroke; }
+  .mm-badge { font-size: 10px; font-weight: 700; }
+
+  /* 拖放遮罩 */
+  .drop-mask {
+    position: fixed; inset: 0; z-index: 50; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(37, 99, 235, 0.12); backdrop-filter: blur(2px);
+    border: 3px dashed var(--primary); border-radius: 16px; margin: 12px;
+    font-size: 18px; font-weight: 700; color: var(--primary);
+    pointer-events: none;
+  }
+  .drop-mask.show { display: flex; }
+
+  footer { margin-top: 18px; text-align: center; color: var(--muted); font-size: 12px; }
+  footer a { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="drop-mask" id="dropMask" data-i18n="dropHint">松开即载入 .json 文件</div>
+<div class="page">
+  <header class="hero">
+    <div class="logo">
+      <svg viewBox="0 0 24 24" width="34" height="34" fill="none">
+        <rect x="3" y="9" width="6" height="6" rx="1.5" fill="#2563eb"/>
+        <rect x="15" y="3" width="6" height="5" rx="1.5" fill="#16a34a"/>
+        <rect x="15" y="16" width="6" height="5" rx="1.5" fill="#d97706"/>
+        <path d="M9 12h4m2-6.5h-2v13h2" stroke="#94a3b8" stroke-width="1.6"/>
+      </svg>
+      <h1>JSON Lens<span class="sub" data-i18n="tagline">粘贴 JSON，一键生成可交互思维导图 —— 全程浏览器本地处理</span></h1>
+    </div>
+    <div class="hero-ops">
+      <button type="button" class="ghost-btn" id="langBtn">EN</button>
+      <button type="button" class="ghost-btn" id="themeBtn">🌓</button>
+    </div>
+  </header>
+
+  <div class="grid">
+    <!-- 输入 -->
+    <section class="panel">
+      <div class="panel-head">
+        <h2 data-i18n="inputTitle">JSON 数据</h2>
+        <div class="ops">
+          <button type="button" class="chip" id="btnFormat" data-i18n="fmt">格式化</button>
+          <button type="button" class="chip" id="btnSample" data-i18n="sample">示例</button>
+          <button type="button" class="chip" id="btnFile" data-i18n="openFile">打开文件</button>
+          <input type="file" id="fileEl" accept=".json,application/json,.txt" hidden />
+        </div>
+      </div>
+      <textarea id="raw" class="json-input" spellcheck="false" placeholder='{"paste": "your JSON", "here": [1, 2, 3]}'></textarea>
+      <p id="msg" class="stats"></p>
+    </section>
+
+    <!-- 画布 -->
+    <section class="panel">
+      <div class="mm-toolbar">
+        <button type="button" id="zoomOut">−</button>
+        <span class="mm-zoom" id="zoomLabel">100%</span>
+        <button type="button" id="zoomIn">＋</button>
+        <button type="button" id="btnFit" data-i18n="fit">适应</button>
+        <button type="button" id="btnCollapse" data-i18n="collapseAll">全部收起</button>
+        <button type="button" id="btnExpand" data-i18n="expandAll">全部展开</button>
+        <button type="button" class="chip primary" id="btnPng" data-i18n="png">下载 PNG</button>
+        <button type="button" class="chip" id="btnSvg" data-i18n="svg">下载 SVG</button>
+        <span class="mm-tip" data-i18n="tip">点击节点折叠/展开 · 滚轮缩放 · 拖拽平移</span>
+      </div>
+      <div class="mm-stage" id="stage">
+        <svg id="svg" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+    </section>
+  </div>
+
+  <footer>
+    <span data-i18n="footer">JSON Lens · 100% 本地处理，数据不上传 · 开源仓库见 README</span>
+  </footer>
+</div>
+
+<script>
+'use strict';
+/* ================================================================
+ * JSON Lens — 独立单文件版
+ * 核心：JSON → {label,type,children} 树 → 横向 tidy 布局 → SVG 渲染
+ * 特性：折叠展开（+N 徽标）、缩放平移、适应视图、PNG/SVG 导出、
+ *       明暗主题、中英 UI、文件拖拽、输入防抖自动渲染
+ * ================================================================ */
+
+/* ---------- i18n ---------- */
+const I18N = {
+  zh: {
+    tagline: '粘贴 JSON，一键生成可交互思维导图 —— 全程浏览器本地处理',
+    inputTitle: 'JSON 数据', fmt: '格式化', sample: '示例', openFile: '打开文件',
+    fit: '适应', collapseAll: '全部收起', expandAll: '全部展开',
+    png: '下载 PNG', svg: '下载 SVG', tip: '点击节点折叠/展开 · 滚轮缩放 · 拖拽平移',
+    dropHint: '松开即载入 .json 文件', footer: 'JSON Lens · 100% 本地处理，数据不上传',
+    valid: (n) => `✓ JSON 有效（${n.toLocaleString()} 字符）`,
+    invalid: (m) => `✕ 解析失败：${m}`,
+    empty: '等待输入…',
+    truncatedDepth: (n) => `… 更深层级已省略（第 ${n} 层起）`,
+    truncatedWide: (n) => `… 其余 ${n} 项已省略`,
+    needValid: '请先输入有效的 JSON',
+    rootObj: '根对象', rootArr: (n) => `根数组 [${n}]`
+  },
+  en: {
+    tagline: 'Paste JSON, get an interactive mind-map — processed 100% locally in your browser',
+    inputTitle: 'JSON Input', fmt: 'Format', sample: 'Sample', openFile: 'Open file',
+    fit: 'Fit', collapseAll: 'Collapse all', expandAll: 'Expand all',
+    png: 'Download PNG', svg: 'Download SVG', tip: 'Click node to fold/unfold · Wheel to zoom · Drag to pan',
+    dropHint: 'Drop a .json file to load', footer: 'JSON Lens · 100% local processing, nothing uploaded',
+    valid: (n) => `✓ Valid JSON (${n.toLocaleString()} chars)`,
+    invalid: (m) => `✕ Parse error: ${m}`,
+    empty: 'Waiting for input…',
+    truncatedDepth: (n) => `… deeper levels omitted (from level ${n})`,
+    truncatedWide: (n) => `… ${n} more items omitted`,
+    needValid: 'Enter valid JSON first',
+    rootObj: 'Root object', rootArr: (n) => `Root array [${n}]`
+  }
+}
+let uiLang = localStorage.getItem('jsonlens-lang') ||
+  (navigator.language.toLowerCase().startsWith('zh') ? 'zh' : 'en')
+const t = (key, ...args) => {
+  const v = I18N[uiLang][key]
+  return typeof v === 'function' ? v(...args) : v
+}
+
+/* ---------- 全局渲染状态（必须先于任何立即执行的主题/渲染调用声明，否则 TDZ） ---------- */
+let tree = null
+let collapsed = new Set()
+let uid = 0
+const view = { x: 40, y: 40, k: 1 }
+let size = { w: 800, h: 600 }
+
+function applyI18n() {
+  document.querySelectorAll('[data-i18n]').forEach((el) => {
+    const v = I18N[uiLang][el.dataset.i18n]
+    if (typeof v === 'string') el.textContent = v
+  })
+  document.getElementById('langBtn').textContent = uiLang === 'zh' ? 'EN' : '中文'
+  document.documentElement.lang = uiLang === 'zh' ? 'zh-CN' : 'en'
+  updateMsg()
+}
+
+/* ---------- 主题 ---------- */
+// 注意：本文件顶部就绑定了事件、底部才做首次初始化——applyTheme 内的 render()
+// 依赖后置的 DOM/状态常量，首次调用只能放在启动区，绝不能在这里立即执行（TDZ）。
+function applyTheme(mode) {
+  document.documentElement.classList.toggle('dark', mode === 'dark')
+  localStorage.setItem('jsonlens-theme', mode)
+  render() // 节点色随主题（首次调用在底部启动区，所有常量已就绪）
+}
+const themeBtn = document.getElementById('themeBtn')
+themeBtn.addEventListener('click', () => {
+  applyTheme(document.documentElement.classList.contains('dark') ? 'light' : 'dark')
+})
+const langBtn = document.getElementById('langBtn')
+langBtn.addEventListener('click', () => {
+  uiLang = uiLang === 'zh' ? 'en' : 'zh'
+  localStorage.setItem('jsonlens-lang', uiLang)
+  applyI18n(); render()
+})
+
+/* ---------- JSON → 树 ---------- */
+const MAX_DEPTH = 12
+const MAX_SIBLINGS = 200
+
+function valLabel(v) {
+  if (typeof v === 'string') {
+    const s = v.length > 24 ? v.slice(0, 24) + '…' : v
+    return '"' + s + '"'
+  }
+  return String(v)
+}
+function typeOf(v) {
+  return v === null ? 'null'
+    : Array.isArray(v) ? 'array'
+    : typeof v === 'object' ? 'object'
+    : typeof v === 'number' ? 'number'
+    : typeof v === 'boolean' ? 'bool' : 'string'
+}
+function omitted(label) { return { label, type: 'null', children: [] } }
+
+function toTree(key, v, isRoot, depth) {
+  const type = typeOf(v)
+  if (v !== null && typeof v === 'object') {
+    const entries = Array.isArray(v) ? v.map((x, i) => [String(i), x]) : Object.entries(v)
+    if (depth >= MAX_DEPTH) {
+      return omitted(key + ' ' + t('truncatedDepth', MAX_DEPTH + 1))
+    }
+    const children = entries.slice(0, MAX_SIBLINGS).map(([k, x]) => toTree(k, x, false, depth + 1))
+    if (entries.length > MAX_SIBLINGS) {
+      children.push(omitted(t('truncatedWide', entries.length - MAX_SIBLINGS)))
+    }
+    return {
+      label: key + (Array.isArray(v) ? ` [${v.length}]` : ' {}'),
+      type, children
+    }
+  }
+  return { label: (isRoot ? '' : key + ': ') + valLabel(v), type, children: [] }
+}
+
+/* ---------- tidy 布局 + SVG 渲染（原生 DOM，无框架） ---------- */
+const svg = document.getElementById('svg')
+const stage = document.getElementById('stage')
+
+const TYPE_STYLE = {
+  root:   { bg: ['#2563eb', '#3b82f6'], text: ['#ffffff', '#ffffff'] },
+  object: { bg: ['rgba(37,99,235,0.13)', 'rgba(91,147,245,0.16)'], text: ['#1d4ed8', '#93b8fb'] },
+  array:  { bg: ['rgba(8,145,178,0.13)', 'rgba(34,211,238,0.14)'], text: ['#0e7490', '#7dd3fc'] },
+  string: { bg: ['rgba(22,163,74,0.13)', 'rgba(74,222,128,0.14)'], text: ['#15803d', '#86efac'] },
+  number: { bg: ['rgba(217,119,6,0.13)', 'rgba(251,191,36,0.15)'], text: ['#b45309', '#fcd34d'] },
+  bool:   { bg: ['rgba(219,39,119,0.13)', 'rgba(244,114,182,0.15)'], text: ['#be185d', '#f9a8d4'] },
+  null:   { bg: ['rgba(100,116,139,0.15)', 'rgba(148,163,184,0.15)'], text: ['#64748b', '#9aa3ae'] }
+}
+const isDark = () => document.documentElement.classList.contains('dark')
+const styleOf = (n) => TYPE_STYLE[n.type] || TYPE_STYLE.object
+const bgOf = (n) => styleOf(n).bg[isDark() ? 1 : 0]
+const textOf = (n) => styleOf(n).text[isDark() ? 1 : 0]
+const strokeOf = (n) => (n.type === 'root' ? 'transparent' : isDark() ? 'rgba(148,163,184,0.45)' : 'rgba(100,116,139,0.4)')
+
+function measureWidth(label) {
+  let w = 0
+  for (const ch of String(label)) w += ch.charCodeAt(0) > 255 ? 14 : 7.6
+  return Math.max(28, Math.min(w, 300))
+}
+function countDesc(node) {
+  let c = 0
+  for (const k of node.children || []) c += 1 + countDesc(k)
+  return c
+}
+function findNode(node, id) {
+  if (node.__id === id) return node
+  for (const k of node.children || []) {
+    const r = findNode(k, id)
+    if (r) return r
+  }
+  return null
+}
+
+function layoutAll() {
+  const nodes = []
+  const GAP_X = 92, ROW = 46
+  let cursorY = 0
+  function layout(node, depth) {
+    const id = node.__id ?? (node.__id = ++uid)
+    const label = String(node.label ?? '')
+    const kids = collapsed.has(id) ? [] : node.children || []
+    const n = {
+      id, label, type: node.type, depth,
+      w: measureWidth(label),
+      collapsedCount: collapsed.has(id) ? countDesc(node) : 0,
+      children: []
+    }
+    if (!kids.length) {
+      n.y = cursorY + ROW / 2
+      n.x = depth * GAP_X + n.w / 2
+      cursorY += ROW
+      nodes.push(n)
+      return n
+    }
+    const kidNs = kids.map((k) => layout(k, depth + 1))
+    n.y = (kidNs[0].y + kidNs[kidNs.length - 1].y) / 2
+    n.x = depth * GAP_X + n.w / 2
+    n.children = kidNs
+    nodes.push(n)
+    return n
+  }
+  layout(tree, 0)
+  const minX = Math.min(...nodes.map((n) => n.x - n.w / 2)) - 26
+  nodes.forEach((n) => { n.x -= minX })
+  const maxY = Math.max(...nodes.map((n) => n.y + 22)) + 20
+  const minY = Math.min(...nodes.map((n) => n.y - 22)) - 20
+  nodes.forEach((n) => { n.y += minY > 0 ? -minY : 0 })
+  size = { w: Math.max(320, Math.ceil(Math.max(...nodes.map((n) => n.x + n.w / 2)) - minX)), h: Math.max(240, Math.ceil(maxY - minY)) }
+  return nodes
+}
+
+const SVG_NS = 'http://www.w3.org/2000/svg'
+function el(tag, attrs) {
+  const e = document.createElementNS(SVG_NS, tag)
+  for (const k in attrs) e.setAttribute(k, attrs[k])
+  return e
+}
+
+function render() {
+  if (!tree) { svg.innerHTML = ''; return }
+  const nodes = layoutAll()
+
+  // 连线（父 → 子 贝塞尔）
+  const frag = document.createDocumentFragment()
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  ;(function walkLinks(node) {
+    const n = byId.get(node.__id)
+    for (const k of node.children || []) {
+      const kn = byId.get(k.__id)
+      if (!n || !kn) continue
+      const x1 = n.x + n.w / 2 + 6, y1 = n.y
+      const x2 = kn.x - kn.w / 2 - 6, y2 = kn.y
+      const mx = (x1 + x2) / 2
+      frag.appendChild(el('path', {
+        class: 'mm-link', d: `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`,
+        stroke: strokeOf(kn) === 'transparent' ? bgOf(kn) : strokeOf(kn)
+      }))
+      walkLinks(k)
+    }
+  })(tree)
+
+  // 节点
+  for (const n of nodes) {
+    const g = el('g', { class: 'mm-node', transform: `translate(${n.x},${n.y})` })
+    g.appendChild(el('rect', {
+      x: -n.w / 2 - 6, y: -15, width: n.w + 12, height: 30, rx: 7,
+      fill: bgOf(n), stroke: strokeOf(n), 'stroke-width': 1.4
+    }))
+    const tx = el('text', { x: 0, y: 1, 'text-anchor': 'middle', 'dominant-baseline': 'middle', fill: textOf(n), class: 'mm-label' })
+    tx.textContent = n.label
+    g.appendChild(tx)
+    if (n.collapsedCount) {
+      const bx = n.w / 2 + 13
+      const label = '+' + n.collapsedCount
+      const bw = label.length * 6.4 + 10
+      g.appendChild(el('rect', { x: bx - bw / 2, y: -9, width: bw, height: 18, rx: 9, fill: 'transparent', stroke: 'rgba(148,163,184,0.55)', 'stroke-width': 1 }))
+      const bt = el('text', { x: bx, y: 1, 'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'mm-badge', fill: textOf(n) })
+      bt.textContent = label
+      g.appendChild(bt)
+    }
+    g.addEventListener('pointerdown', (e) => onNodeDown(n, e))
+    frag.appendChild(g)
+  }
+  svg.innerHTML = ''
+  svg.setAttribute('width', size.w)
+  svg.setAttribute('height', size.h)
+  svg.appendChild(frag)
+  applyView()
+}
+
+/* ---------- 视图：平移 / 缩放 / 适应 ---------- */
+function applyView() {
+  svg.style.transform = `translate(${view.x}px,${view.y}px) scale(${view.k})`
+  svg.style.transformOrigin = '0 0'
+  document.getElementById('zoomLabel').textContent = Math.round(view.k * 100) + '%'
+}
+function zoomAt(cx, cy, d) {
+  const k = Math.min(2.5, Math.max(0.08, +(view.k + d).toFixed(3)))
+  const px = (cx - view.x) / view.k, py = (cy - view.y) / view.k
+  view.k = k; view.x = cx - px * k; view.y = cy - py * k
+  applyView()
+}
+function fit() {
+  const r = stage.getBoundingClientRect()
+  if (!r.width || !size.w) return
+  const k = Math.min((r.width - 24) / size.w, (r.height - 24) / size.h, 1.2)
+  view.k = k
+  view.x = (r.width - size.w * k) / 2
+  view.y = (r.height - size.h * k) / 2
+  applyView()
+}
+stage.addEventListener('wheel', (e) => {
+  e.preventDefault()
+  const r = stage.getBoundingClientRect()
+  zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 0.12 : -0.12)
+}, { passive: false })
+let pan = null
+stage.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return
+  pan = { sx: e.clientX, sy: e.clientY, ox: view.x, oy: view.y }
+  const move = (ev) => { view.x = pan.ox + ev.clientX - pan.sx; view.y = pan.oy + ev.clientY - pan.sy; applyView() }
+  const up = () => {
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', up)
+    pan = null
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up)
+})
+
+/* ---------- 节点点击折叠 ---------- */
+function onNodeDown(n, e) {
+  const sx = e.clientX, sy = e.clientY
+  const up = (ev) => {
+    window.removeEventListener('pointerup', up)
+    if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 4) {
+      const s = new Set(collapsed)
+      if (s.has(n.id)) s.delete(n.id)
+      else if (countDesc(findNode(tree, n.id))) s.add(n.id)
+      collapsed = s
+      render()
+    }
+  }
+  window.addEventListener('pointerup', up)
+}
+
+/* ---------- 导出 PNG / SVG（当前主题色直接烘焙，无需正则替换） ---------- */
+function serializeSvg() {
+  const clone = svg.cloneNode(true)
+  clone.setAttribute('xmlns', SVG_NS)
+  const bg = isDark() ? '#171a20' : '#ffffff'
+  const bgRect = `<rect x="-2000" y="-2000" width="${size.w + 4000}" height="${size.h + 4000}" fill="${bg}"/>`
+  return clone.outerHTML.replace(/(<svg[^>]*>)/, `$1${bgRect}`)
+}
+function download(blob, name) {
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = name
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(a.href), 3000)
+}
+async function exportPng() {
+  if (!tree) return
+  const img = new Image()
+  await new Promise((ok, err) => {
+    img.onload = ok
+    img.onerror = err
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(serializeSvg())
+  })
+  const scale = 2
+  const c = document.createElement('canvas')
+  c.width = size.w * scale
+  c.height = size.h * scale
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height)
+  c.toBlob((b) => download(b, 'json-map.png'), 'image/png')
+}
+function exportSvg() {
+  if (!tree) return
+  download(new Blob([serializeSvg()], { type: 'image/svg+xml' }), 'json-map.svg')
+}
+
+/* ---------- 输入 / 文件 / 示例 ---------- */
+const rawEl = document.getElementById('raw')
+const msgEl = document.getElementById('msg')
+let parsedValue = null
+
+function updateMsg() {
+  const s = rawEl.value.trim()
+  if (!s) { msgEl.textContent = t('empty'); msgEl.className = 'stats'; return }
+  if (parsedValue !== null) { msgEl.textContent = t('valid', s.length); msgEl.className = 'stats' }
+}
+function tryParse() {
+  const s = rawEl.value.trim()
+  parsedValue = null
+  if (!s) { updateMsg(); return }
+  try {
+    parsedValue = JSON.parse(s)
+    updateMsg()
+  } catch (e) {
+    msgEl.textContent = t('invalid', e.message)
+    msgEl.className = 'err'
+  }
+}
+function generate() {
+  if (parsedValue === null) { tree = null; render(); return }
+  collapsed = new Set()
+  tree = toTree(
+    Array.isArray(parsedValue) ? t('rootArr', parsedValue.length) : t('rootObj'),
+    parsedValue, true, 0
+  )
+  render()
+  requestAnimationFrame(fit)
+}
+let debounceTimer = 0
+rawEl.addEventListener('input', () => {
+  clearTimeout(debounceTimer)
+  debounceTimer = setTimeout(() => {
+    tryParse()
+    if (parsedValue !== null) generate()
+  }, 400)
+})
+
+const SAMPLE = {
+  name: 'JSON Lens',
+  tagline: 'Turn JSON into an interactive mind-map',
+  features: { local: true, free: true, ads: false, export: ['PNG', 'SVG'] },
+  nodeTypes: {
+    object: { color: 'blue', collapsible: true },
+    array: { color: 'cyan', collapsible: true },
+    primitives: ['string', 'number', 'boolean', 'null']
+  },
+  data: [
+    { id: 1, label: 'hover a node', tags: ['fold', 'unfold'] },
+    { id: 2, label: 'wheel to zoom', tags: ['in', 'out'] }
+  ],
+  privacy: null
+}
+document.getElementById('btnSample').addEventListener('click', () => {
+  rawEl.value = JSON.stringify(SAMPLE, null, 2)
+  tryParse(); generate()
+})
+document.getElementById('btnFormat').addEventListener('click', () => {
+  if (parsedValue === null) { rawEl.focus(); return }
+  rawEl.value = JSON.stringify(parsedValue, null, 2)
+  updateMsg()
+})
+document.getElementById('btnFile').addEventListener('click', () => document.getElementById('fileEl').click())
+document.getElementById('fileEl').addEventListener('change', (e) => {
+  const f = e.target.files && e.target.files[0]
+  e.target.value = ''
+  if (!f) return
+  const rd = new FileReader()
+  rd.onload = () => { rawEl.value = rd.result; tryParse(); if (parsedValue !== null) generate() }
+  rd.readAsText(f)
+})
+
+// 拖拽 .json 到页面任意位置
+const dropMask = document.getElementById('dropMask')
+let dragDepth = 0
+window.addEventListener('dragenter', (e) => { e.preventDefault(); dragDepth++; dropMask.classList.add('show') })
+window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; dropMask.classList.remove('show') } })
+window.addEventListener('dragover', (e) => e.preventDefault())
+window.addEventListener('drop', (e) => {
+  e.preventDefault()
+  dragDepth = 0
+  dropMask.classList.remove('show')
+  const f = e.dataTransfer.files && e.dataTransfer.files[0]
+  if (!f) return
+  const rd = new FileReader()
+  rd.onload = () => { rawEl.value = rd.result; tryParse(); if (parsedValue !== null) generate() }
+  rd.readAsText(f)
+})
+
+/* ---------- 工具条按钮 ---------- */
+document.getElementById('zoomOut').addEventListener('click', () => {
+  const r = stage.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, -0.15)
+})
+document.getElementById('zoomIn').addEventListener('click', () => {
+  const r = stage.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, 0.15)
+})
+document.getElementById('btnFit').addEventListener('click', fit)
+document.getElementById('btnCollapse').addEventListener('click', () => {
+  if (!tree) return
+  const s = new Set()
+  ;(function walk(n) {
+    if (n !== tree && n.children && n.children.length) s.add(n.__id)
+    ;(n.children || []).forEach(walk)
+  })(tree)
+  collapsed = s
+  render()
+})
+document.getElementById('btnExpand').addEventListener('click', () => { collapsed = new Set(); render() })
+document.getElementById('btnPng').addEventListener('click', exportPng)
+document.getElementById('btnSvg').addEventListener('click', exportSvg)
+window.addEventListener('resize', () => { if (tree) fit() })
+
+/* ---------- 启动 ---------- */
+applyTheme(localStorage.getItem('jsonlens-theme') ||
+  (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'))
+applyI18n()
+rawEl.value = JSON.stringify(SAMPLE, null, 2)
+tryParse()
+generate()
+</script>
+</body>
+</html>
