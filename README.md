@@ -2,6 +2,8 @@
 
 **[中文文档](README.zh-CN.md)**
 
+<a href="https://bushimashen.github.io/json-lens/"><b>▶ Live demo</b></a>
+
 Paste any JSON and instantly get an **interactive mind-map** — objects, arrays, strings, numbers, booleans and null each get their own color. Explore huge payloads by folding branches, zooming and panning, then export a crisp PNG or a vector SVG.
 
 **Everything runs 100% locally in your browser. No server, no upload, no tracking — your data never leaves the page.**
